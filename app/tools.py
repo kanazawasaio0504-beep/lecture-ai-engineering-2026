@@ -5,10 +5,14 @@
 """
 
 import json
+import random
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+LOG_DIR = BASE_DIR / "learning_log"
 MAX_RESULTS = 3
 
 
@@ -33,6 +37,7 @@ def search_glossary(query: str) -> str:
 
     AIエンジニアリングの用語や、この講座（AIE2026）に固有の言葉について
     答える前に使うこと。query には調べたい用語を1つだけ入れる（例: "LoRA"）。
+    複数の用語を調べるときは、用語ごとに別々にこのツールを呼び出すこと。
     """
     q = _normalize(query)
     if not q:
@@ -67,6 +72,31 @@ def search_glossary(query: str) -> str:
     )
 
 
+def save_learning_log(topic: str, summary: str, lecture: int | None = None) -> str:
+    """利用者から学習内容の保存を頼まれたときだけ、学習記録を Markdown で保存する。
+
+    自分から提案したり、利用者の依頼なしにこのツールを使ったりしないこと。
+    topic には記録全体の題名（例: "LoRAとQLoRA"）、
+    summary には学んだ要点（例: "LoRAは低ランク行列で追加学習する手法。"）を入れる。
+    lecture には関係する回の番号を整数で入れる（例: 第3回なら 3）。
+    複数の用語を調べていた場合は、summary に用語ごとの要点を書くこと。
+    """
+    saved_at = datetime.now()
+    filename = saved_at.strftime("%Y%m%d_%H%M%S_%f.md")
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    content = f"# {topic}\n\n"
+    content += f"- 保存日時: {saved_at:%Y-%m-%d %H:%M:%S}\n"
+    if lecture is not None:
+        content += f"- 関係する回: 第{lecture}回\n"
+    content += f"\n## 学んだこと\n\n{summary}\n"
+
+    path = LOG_DIR / filename
+    path.write_text(content, encoding="utf-8")
+    relative_path = path.relative_to(BASE_DIR)
+    return f"学習の記録を保存しました: {relative_path.as_posix()}"
+
+
 def get_lecture_summary(lecture: int) -> str:
     """指定した回（1始まりの整数）の講義の要点を返す。
 
@@ -77,3 +107,23 @@ def get_lecture_summary(lecture: int) -> str:
         available = sorted(p.stem for p in (DATA_DIR / "lectures").glob("*.md"))
         return f"第{lecture}回の要点はまだありません。用意されている回: {', '.join(available)}"
     return path.read_text(encoding="utf-8")
+
+
+def make_quiz(lecture: int) -> str:
+    """指定した回の用語から１つを選び、
+    確認問題と答えを返す。
+
+    「第２回の確認問題を出して」のように復習用の問題を求められたときに使う。
+    """
+    terms = [entry for entry in load_glossary() if entry["lecture"] == lecture]
+    if not terms:
+        return f"第{lecture}回の用語が見つかりませんでした。"
+
+    entry = random.choice(terms)
+    return json.dumps(
+        {
+            "question": f"次の説明に当てはまる用語は何ですか？ {entry['definition']}",
+            "answer": entry["term"],
+        },
+        ensure_ascii=False,
+    )
